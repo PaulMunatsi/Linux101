@@ -2534,3 +2534,886 @@ sudo mount -o remount /run/shm
 # 9. Kernel hardening (sysctl)
 sudo nano /etc/sysctl.conf
 # Add these:
+```
+---
+
+#### Day 40: User and Permission Auditing
+
+```bash
+# Finding files with specific permissions
+find / -perm -4000 2>/dev/null  # SUID files
+find / -perm -2000 2>/dev/null  # SGID files
+find / -perm -1000 2>/dev/null  # Sticky bit files
+find / -perm -777 2>/dev/null   # World-writable files (dangerous!)
+find / -nouser 2>/dev/null      # Files with no owner
+find / -nogroup 2>/dev/null     # Files with no group
+
+# World-writable directories (except /tmp, /var/tmp)
+find / -type d -perm -002 2>/dev/null | grep -v '/tmp\|/var/tmp\|/proc\|/sys'
+
+# Files modified in last 7 days
+find /etc -mtime -7 -type f
+
+# Large files that might be suspicious
+find / -size +100M -type f 2>/dev/null
+
+# User auditing
+awk -F: '($3 >= 1000) {print $1}' /etc/passwd  # Regular users
+awk -F: '($3 == 0) {print $1}' /etc/passwd     # Root equivalent users (should only be root)
+awk -F: '($2 == "") {print $1}' /etc/shadow    # Users with no password
+
+# Group auditing
+cat /etc/group                   # All groups
+getent group sudo                # Members of sudo group
+groups username                  # User's groups
+
+# Check for unauthorized changes
+rpm -Va                          # RHEL/CentOS
+debsums -c                       # Debian/Ubuntu (install debsums)
+
+# AppArmor (Ubuntu/Debian)
+sudo aa-status                   # AppArmor status
+sudo aa-enforce /path/to/profile # Enforce mode
+sudo aa-complain /path/to/profile # Complain mode
+sudo aa-disable /path/to/profile # Disable profile
+
+# SELinux (RHEL/CentOS)
+getenforce                       # Check mode
+sestatus                         # Detailed status
+sudo setenforce 1                # Enforcing mode
+ls -Z                            # List SELinux contexts
+ps -eZ                           # Process contexts
+
+# Sudo usage audit
+sudo grep sudo /var/log/auth.log # Who used sudo
+sudo last                        # Login history
+sudo lastb                       # Failed login attempts
+
+# Check for rootkits
+sudo apt install chkrootkit rkhunter
+sudo chkrootkit
+sudo rkhunter --check
+```
+
+**Exercise 9.2:**
+1. Find all SUID files on your system
+2. Identify world-writable files
+3. List all users with UID >= 1000
+4. Check which users are in the sudo group
+5. Review recent file modifications in /etc
+
+**Challenge 9.2:** Create a security audit script that:
+- Checks for suspicious file permissions
+- Lists unauthorized SUID/SGID files
+- Identifies files without owners
+- Checks for empty passwords
+- Audits sudo group membership
+- Generates a report with findings
+- Emails/alerts on critical issues
+
+---
+
+#### Day 41: Encryption and Secrets Management
+
+```bash
+# GPG (GNU Privacy Guard)
+gpg --gen-key                    # Generate key pair
+gpg --list-keys                  # List public keys
+gpg --list-secret-keys           # List private keys
+
+# Encrypting files
+gpg -c file.txt                  # Symmetric encryption (password)
+gpg -e -r recipient@email file.txt  # Asymmetric encryption
+gpg -d file.txt.gpg              # Decrypt
+
+# Signing and verifying
+gpg --sign file.txt              # Sign file
+gpg --verify file.txt.gpg        # Verify signature
+gpg --clearsign file.txt         # Sign (readable text)
+
+# Exporting keys
+gpg --export -a "User Name" > public.key
+gpg --export-secret-key -a "User Name" > private.key
+gpg --import public.key          # Import key
+
+# Encrypting partitions (LUKS)
+sudo apt install cryptsetup
+
+# Create encrypted partition
+sudo cryptsetup luksFormat /dev/sdb1
+sudo cryptsetup luksOpen /dev/sdb1 encrypted_volume
+sudo mkfs.ext4 /dev/mapper/encrypted_volume
+sudo mount /dev/mapper/encrypted_volume /mnt
+
+# Close encrypted volume
+sudo umount /mnt
+sudo cryptsetup luksClose encrypted_volume
+
+# Encrypted home directory
+sudo apt install ecryptfs-utils
+ecryptfs-migrate-home -u username
+
+# SSL/TLS certificates
+# Generate private key
+openssl genrsa -out private.key 2048
+
+# Generate certificate signing request
+openssl req -new -key private.key -out request.csr
+
+# Generate self-signed certificate
+openssl req -x509 -newkey rsa:4096 -keyout key.pem -out cert.pem -days 365 -nodes
+
+# View certificate
+openssl x509 -in cert.pem -text -noout
+
+# Test SSL connection
+openssl s_client -connect example.com:443
+
+# Password management
+# Generate random passwords
+openssl rand -base64 32
+pwgen -s 20 1                    # Install pwgen first
+
+# Password hashing
+echo -n "password" | sha256sum
+echo -n "password" | openssl passwd -6 -stdin  # SHA-512
+
+# Secure file deletion
+sudo apt install secure-delete
+shred -vfz -n 10 file.txt       # Overwrite and delete
+srm file.txt                     # Secure remove
+sfill /path                      # Fill free space
+
+# Secrets in environment variables
+export DB_PASSWORD="secret"      # Don't do this in production!
+# Better: Use .env files not in version control
+
+# Vault (HashiCorp Vault) - advanced
+# Install from hashicorp.com
+vault server -dev                # Development server
+export VAULT_ADDR='http://127.0.0.1:8200'
+vault kv put secret/db password=secret
+vault kv get secret/db
+```
+
+**Exercise 9.3:**
+1. Generate a GPG key pair
+2. Encrypt a file using GPG
+3. Decrypt the file
+4. Generate a self-signed SSL certificate
+5. Create secure random passwords
+
+**Challenge 9.3:** Implement encryption strategy:
+- Create encrypted partition for sensitive data
+- Set up GPG for file encryption
+- Generate and manage SSL certificates
+- Create secure password generation script
+- Document encryption/decryption procedures
+- Test backup and recovery of encrypted data
+
+---
+
+#### Day 42: Security Monitoring and Logging
+
+```bash
+# Centralized logging
+# Install rsyslog (usually installed by default)
+sudo apt install rsyslog
+sudo systemctl status rsyslog
+
+# Configure remote logging
+sudo nano /etc/rsyslog.conf
+# On log server:
+# module(load="imudp")
+# input(type="imudp" port="514")
+
+# On clients:
+# *.* @logserver_ip:514         # UDP
+# *.* @@logserver_ip:514        # TCP
+
+sudo systemctl restart rsyslog
+
+# Auditd (detailed system auditing)
+sudo apt install auditd audispd-plugins
+sudo systemctl start auditd
+sudo systemctl enable auditd
+
+# Audit rules
+sudo auditctl -l                 # List rules
+sudo auditctl -w /etc/passwd -p wa -k passwd_changes
+sudo auditctl -w /etc/shadow -p wa -k shadow_changes
+sudo auditctl -w /var/log/auth.log -p wa -k auth_log_changes
+
+# Make rules persistent
+sudo nano /etc/audit/rules.d/audit.rules
+# Add rules, then:
+sudo augenrules --load
+
+# Search audit logs
+sudo ausearch -k passwd_changes
+sudo ausearch -ua username       # By user
+sudo ausearch -f /etc/passwd     # By file
+sudo aureport                    # Summary report
+sudo aureport -au                # Authentication report
+
+# Logwatch (log analyzer)
+sudo apt install logwatch
+sudo logwatch --detail High --mailto your@email.com --service all --range today
+
+# Configure logwatch
+sudo nano /etc/logwatch/conf/logwatch.conf
+# MailTo = your@email.com
+# Range = yesterday
+# Detail = High
+
+# Manual cron for daily reports
+sudo crontab -e
+# 0 6 * * * /usr/sbin/logwatch --output mail --mailto your@email.com --detail high
+
+# Log analysis tools
+# 1. GoAccess (web server log analyzer)
+sudo apt install goaccess
+goaccess /var/log/apache2/access.log -o report.html --log-format=COMBINED
+goaccess /var/log/nginx/access.log -o report.html --log-format=COMBINED
+
+# 2. Logrotate monitoring
+cat /etc/logrotate.conf
+ls /etc/logrotate.d/
+sudo logrotate -d /etc/logrotate.conf  # Debug mode
+
+# 3. Monitoring failed login attempts
+sudo grep "Failed password" /var/log/auth.log
+sudo grep "Failed password" /var/log/auth.log | awk '{print $11}' | sort | uniq -c | sort -rn
+
+# 4. SSH login monitoring
+sudo grep "Accepted" /var/log/auth.log
+sudo last -n 20                  # Last 20 logins
+sudo lastb -n 20                 # Last 20 failed logins
+
+# 5. Intrusion detection (OSSEC/Wazuh)
+# Basic installation (simplified)
+wget -q -O - https://packages.wazuh.com/key/GPG-KEY-WAZUH | sudo apt-key add -
+# Follow official documentation for full installation
+
+# Real-time log monitoring script
+#!/bin/bash
+tail -f /var/log/auth.log | while read line; do
+    echo $line | grep -q "Failed password"
+    if [ $? -eq 0 ]; then
+        echo "Alert: Failed login attempt detected!"
+        echo $line
+        # Send notification here
+    fi
+done
+
+# Security alerts
+# Install alerting tool
+sudo apt install mailutils        # For email alerts
+
+# Create alert script
+sudo nano /usr/local/bin/security-alert.sh
+#!/bin/bash
+ALERT_EMAIL="admin@example.com"
+
+# Check for failed logins
+FAILED=$(grep "Failed password" /var/log/auth.log | tail -20)
+if [ ! -z "$FAILED" ]; then
+    echo "$FAILED" | mail -s "Security Alert: Failed Logins" $ALERT_EMAIL
+fi
+
+# Check for new SUID files
+# (Store baseline in /root/suid_baseline.txt)
+find / -perm -4000 2>/dev/null > /tmp/suid_current.txt
+diff /root/suid_baseline.txt /tmp/suid_current.txt > /tmp/suid_diff.txt
+if [ -s /tmp/suid_diff.txt ]; then
+    cat /tmp/suid_diff.txt | mail -s "Security Alert: New SUID Files" $ALERT_EMAIL
+fi
+
+# Schedule in cron
+sudo crontab -e
+# 0 * * * * /usr/local/bin/security-alert.sh
+```
+
+**Exercise 9.4:**
+1. Configure auditd to monitor /etc/passwd changes
+2. Set up logwatch for daily reports
+3. Analyze web server logs with goaccess
+4. Monitor failed SSH login attempts
+5. Create a simple log monitoring script
+
+**Challenge 9.4:** Build comprehensive security monitoring system:
+- Configure auditd for critical files
+- Set up automated log analysis
+- Create real-time alert system
+- Monitor for suspicious activities:
+  - Failed logins
+  - New SUID files
+  - Unauthorized sudo usage
+  - Large file transfers
+- Generate daily security reports
+- Set up log retention and rotation
+
+---
+
+## Module 10: Advanced Topics & Automation
+
+### Week 14-16: Advanced System Administration
+
+#### Day 43: Advanced Bash Scripting
+
+```bash
+# Advanced variable manipulation
+STRING="Hello World"
+echo ${STRING,,}                 # Lowercase
+echo ${STRING^^}                 # Uppercase
+echo ${STRING:0:5}               # Substring
+echo ${STRING/World/Linux}       # Replace
+echo ${STRING#Hello }            # Remove from start
+echo ${STRING%World}             # Remove from end
+
+# Arrays (advanced)
+ARRAY=(one two three four five)
+echo ${ARRAY[@]}                 # All elements
+echo ${ARRAY[2]}                 # Third element
+echo ${#ARRAY[@]}                # Array length
+ARRAY+=(six)                     # Append
+unset ARRAY[2]                   # Remove element
+
+# Associative arrays
+declare -A USER_AGES
+USER_AGES[alice]=25
+USER_AGES[bob]=30
+echo ${USER_AGES[alice]}
+echo ${!USER_AGES[@]}            # All keys
+echo ${USER_AGES[@]}             # All values
+
+# Advanced conditionals
+[[ $VAR =~ ^[0-9]+$ ]]          # Regex match (numbers only)
+[[ -z $VAR ]]                    # Empty string
+[[ -n $VAR ]]                    # Not empty
+[[ $FILE1 -nt $FILE2 ]]         # FILE1 newer than FILE2
+[[ $FILE1 -ot $FILE2 ]]         # FILE1 older than FILE2
+
+# Process substitution
+diff <(ls dir1) <(ls dir2)      # Compare directory contents
+while read line; do echo $line; done < <(command)
+
+# Here documents
+cat << EOF > file.txt
+Line 1
+Line 2
+Variable: $VAR
+EOF
+
+# Command grouping
+{ command1; command2; } > output.txt
+( cd /tmp && command )           # Run in subshell
+
+# Traps (error handling)
+#!/bin/bash
+cleanup() {
+    echo "Cleaning up..."
+    rm -f /tmp/tempfile
+}
+trap cleanup EXIT                # Run on exit
+trap 'echo "Error on line $LINENO"' ERR
+
+# Parallel execution
+#!/bin/bash
+for i in {1..5}; do
+    (
+        echo "Task $i starting"
+        sleep 2
+        echo "Task $i done"
+    ) &
+done
+wait                             # Wait for all background jobs
+
+# Logging function
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a /var/log/myscript.log
+}
+
+log "Script started"
+
+# Argument parsing
+while getopts "hv:f:" opt; do
+    case $opt in
+        h) echo "Help message"; exit 0 ;;
+        v) VERBOSE=$OPTARG ;;
+        f) FILE=$OPTARG ;;
+        \?) echo "Invalid option"; exit 1 ;;
+    esac
+done
+
+# Configuration file parsing
+#!/bin/bash
+CONFIG_FILE="config.ini"
+while IFS='=' read -r key value; do
+    case $key in
+        username) USERNAME=$value ;;
+        password) PASSWORD=$value ;;
+    esac
+done < "$CONFIG_FILE"
+
+# Advanced script template
+#!/bin/bash
+set -euo pipefail               # Exit on error, undefined var, pipe fail
+
+# Script metadata
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+LOG_FILE="/var/log/${SCRIPT_NAME%.sh}.log"
+
+# Functions
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" | tee -a "$LOG_FILE"
+}
+
+error() {
+    log "ERROR: $*" >&2
+    exit 1
+}
+
+usage() {
+    cat << EOF
+Usage: $SCRIPT_NAME [OPTIONS]
+
+Options:
+    -h, --help      Show this help message
+    -v, --verbose   Verbose output
+    -f FILE         Input file
+
+EOF
+    exit 0
+}
+
+cleanup() {
+    log "Cleaning up..."
+    # Cleanup code here
+}
+
+# Main logic
+main() {
+    log "Script started"
+    
+    # Your code here
+    
+    log "Script completed successfully"
+}
+
+# Setup
+trap cleanup EXIT
+trap 'error "Script failed on line $LINENO"' ERR
+
+# Run
+main "$@"
+```
+
+**Exercise 10.1:**
+1. Create a script using associative arrays to store user info
+2. Implement proper error handling with traps
+3. Add command-line argument parsing
+4. Create a logging function
+5. Use process substitution to compare outputs
+
+**Challenge 10.1:** Create a professional deployment script:
+- Parse configuration from file
+- Validate all prerequisites
+- Implement rollback on failure
+- Comprehensive logging
+- Email notifications
+- Parallel task execution
+- Progress indicators
+- Detailed error messages
+
+---
+
+#### Day 44: System Automation with Ansible (Introduction)
+
+```bash
+# Installing Ansible
+sudo apt update
+sudo apt install ansible
+
+# Ansible configuration
+/etc/ansible/ansible.cfg         # Global config
+~/.ansible.cfg                   # User config
+./ansible.cfg                    # Project config
+
+# Inventory file
+sudo nano /etc/ansible/hosts
+# or create local inventory
+nano inventory.ini
+
+# Example inventory:
+[webservers]
+web1.example.com
+web2.example.com
+
+[databases]
+db1.example.com
+
+[pi]
+192.168.1.100 ansible_user=pi
+
+[all:vars]
+ansible_python_interpreter=/usr/bin/python3
+
+# Testing connectivity
+ansible all -m ping -i inventory.ini
+ansible webservers -m ping
+ansible -i inventory.ini pi -m ping
+
+# Ad-hoc commands
+ansible all -a "uptime"          # Run command
+ansible all -m shell -a "df -h"  # Shell module
+ansible all -m copy -a "src=/path/file dest=/tmp/"
+ansible all -m apt -a "name=nginx state=present" --become
+
+# Playbooks
+# Create playbook.yml
+nano playbook.yml
+
+---
+- name: Configure web servers
+  hosts: webservers
+  become: yes
+  
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: yes
+        cache_valid_time: 3600
+    
+    - name: Install nginx
+      apt:
+        name: nginx
+        state: present
+    
+    - name: Start nginx
+      service:
+        name: nginx
+        state: started
+        enabled: yes
+    
+    - name: Copy website files
+      copy:
+        src: ./html/
+        dest: /var/www/html/
+        owner: www-data
+        group: www-data
+        mode: '0644'
+    
+    - name: Template configuration
+      template:
+        src: nginx.conf.j2
+        dest: /etc/nginx/nginx.conf
+      notify: Restart nginx
+  
+  handlers:
+    - name: Restart nginx
+      service:
+        name: nginx
+        state: restarted
+
+# Running playbooks
+ansible-playbook playbook.yml
+ansible-playbook -i inventory.ini playbook.yml
+ansible-playbook playbook.yml --check  # Dry run
+ansible-playbook playbook.yml --tags "install"
+ansible-playbook playbook.yml -v      # Verbose
+ansible-playbook playbook.yml --limit webservers
+
+# Variables
+# In playbook:
+vars:
+  http_port: 80
+  domain_name: example.com
+
+# Variable files
+# vars.yml
+http_port: 80
+max_clients: 200
+
+# Use in playbook:
+vars_files:
+  - vars.yml
+
+# Ansible Vault (encrypted variables)
+ansible-vault create secrets.yml
+ansible-vault edit secrets.yml
+ansible-vault encrypt existing.yml
+ansible-vault decrypt existing.yml
+ansible-playbook playbook.yml --ask-vault-pass
+
+# Roles (organized playbooks)
+ansible-galaxy init myrole       # Create role structure
+# Directory structure:
+# myrole/
+#   tasks/
+#   handlers/
+#   templates/
+#   files/
+#   vars/
+#   defaults/
+#   meta/
+
+# Using roles in playbook:
+roles:
+  - myrole
+  - { role: anotherrole, when: ansible_os_family == "Debian" }
+
+# Ansible Galaxy (community roles)
+ansible-galaxy search nginx
+ansible-galaxy install geerlingguy.nginx
+ansible-galaxy list
+
+# Example: Complete web server setup
+---
+- name: Setup LAMP Stack
+  hosts: webservers
+  become: yes
+  
+  vars:
+    mysql_root_password: "{{ vault_mysql_root_password }}"
+    app_user: webapp
+  
+  tasks:
+    - name: Install required packages
+      apt:
+        name:
+          - apache2
+          - mysql-server
+          - php
+          - libapache2-mod-php
+          - php-mysql
+        state: present
+    
+    - name: Create application user
+      user:
+        name: "{{ app_user }}"
+        state: present
+        shell: /bin/bash
+    
+    - name: Configure MySQL
+      mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        host: localhost
+        state: present
+    
+    - name: Enable Apache modules
+      apache2_module:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - rewrite
+        - ssl
+      notify: Restart Apache
+    
+    - name: Copy virtual host config
+      template:
+        src: vhost.conf.j2
+        dest: /etc/apache2/sites-available/app.conf
+      notify: Restart Apache
+    
+    - name: Enable site
+      command: a2ensite app.conf
+      notify: Restart Apache
+  
+  handlers:
+    - name: Restart Apache
+      service:
+        name: apache2
+        state: restarted
+```
+
+**Exercise 10.2:**
+1. Install Ansible on your Ubuntu Desktop
+2. Create inventory with your Raspberry Pi
+3. Test connectivity with ping module
+4. Run ad-hoc command to check disk space
+5. Create simple playbook to install a package
+
+**Challenge 10.2:** Create complete infrastructure automation:
+- Multi-server inventory
+- Playbook to configure web servers
+- Playbook to configure database servers
+- Use variables and templates
+- Implement roles for reusability
+- Use Vault for sensitive data
+- Create deployment playbook
+- Document the entire setup
+
+---
+#### Day 45: Containers - Docker Basics
+
+```bash
+# Installing Docker
+sudo apt update
+sudo apt install apt-transport-https ca-certificates curl software-properties-common
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo gpg --dearmor -o /usr/share/keyrings/docker-archive-keyring.gpg
+echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/docker-archive-keyring.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | sudo tee /etc/apt/sources.list.d/docker.list > /dev/null
+sudo apt update
+sudo apt install docker-ce docker-ce-cli containerd.io
+
+# Add user to docker group (no sudo needed)
+sudo usermod -aG docker $USER
+newgrp docker                    # Or logout/login
+
+# Docker basics
+docker --version
+docker info
+docker run hello-world           # Test installation
+
+# Running containers
+docker run ubuntu                # Run Ubuntu container
+docker run -it ubuntu bash       # Interactive terminal
+docker run -d nginx              # Detached mode
+docker run -d -p 8080:80 nginx   # Port mapping
+docker run -d --name mynginx nginx  # Named container
+docker run -d -v /host/path:/container/path nginx  # Volume mount
+docker run -e "ENV_VAR=value" nginx  # Environment variable
+
+# Container management
+docker ps                        # Running containers
+docker ps -a                     # All containers
+docker stop container_id         # Stop container
+docker start container_id        # Start container
+docker restart container_id      # Restart container
+docker rm container_id           # Remove container
+docker rm -f container_id        # Force remove running container
+docker exec -it container_id bash  # Execute command in container
+docker logs container_id         # View logs
+docker logs -f container_id      # Follow logs
+docker inspect container_id      # Detailed info
+
+# Images
+docker images                    # List images
+docker pull ubuntu:20.04         # Pull image
+docker rmi image_id              # Remove image
+docker search nginx              # Search Docker Hub
+docker history image_id          # Image history
+docker tag image_id myimage:tag  # Tag image
+
+# Building images (Dockerfile)
+nano Dockerfile
+
+# Example Dockerfile:
+FROM ubuntu:20.04
+LABEL maintainer="you@example.com"
+RUN apt-get update && apt-get install -y \
+    nginx \
+    && rm -rf /var/lib/apt/lists/*
+COPY index.html /var/www/html/
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+
+# Build image
+docker build -t mywebserver:1.0 .
+docker build -t mywebserver:1.0 -f CustomDockerfile .
+
+# Multi-stage builds
+FROM node:14 AS build
+WORKDIR /app
+COPY package*.json ./
+RUN npm install
+COPY . .
+RUN npm run build
+
+FROM nginx:alpine
+COPY --from=build /app/build /usr/share/nginx/html
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
+
+# Docker Compose
+sudo apt install docker-compose
+
+# docker-compose.yml
+version: '3.8'
+services:
+  web:
+    image: nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./html:/usr/share/nginx/html
+    depends_on:
+      - db
+  
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: myapp
+    volumes:
+      - db_data:/var/lib/mysql
+
+volumes:
+  db_data:
+
+# Docker Compose commands
+docker-compose up                # Start services
+docker-compose up -d             # Detached
+docker-compose down              # Stop and remove
+docker-compose ps                # List services
+docker-compose logs              # View logs
+docker-compose logs -f web       # Follow specific service
+docker-compose exec web bash     # Execute in service
+docker-compose build             # Build images
+docker-compose restart           # Restart services
+
+# Networks
+docker network ls                # List networks
+docker network create mynetwork  # Create network
+docker network inspect mynetwork # Inspect network
+docker run --network=mynetwork nginx  # Run in network
+docker network connect mynetwork container_id  # Connect container
+
+# Volumes
+docker volume ls                 # List volumes
+docker volume create myvolume    # Create volume
+docker volume inspect myvolume   # Inspect volume
+docker volume rm myvolume        # Remove volume
+docker run -v myvolume:/data nginx  # Use volume
+
+# Docker system
+docker system df                 # Disk usage
+docker system prune              # Clean up
+docker system prune -a           # Remove all unused
+docker image prune               # Remove unused images
+docker container prune           # Remove stopped containers
+
+# Docker registry
+docker login                     # Login to Docker Hub
+docker push username/image:tag   # Push image
+docker pull username/image:tag   # Pull image
+
+# Private registry
+docker run -d -p 5000:5000 --name registry registry:2
+docker tag myimage localhost:5000/myimage
+docker push localhost:5000/myimage
+```
+
+**Exercise 10.3:**
+1. Install Docker
+2. Run a container and explore it
+3. Create a simple Dockerfile
+4. Build and run your custom image
+5. Set up a multi-container application with docker-compose
+
+**Challenge 10.3:** Dockerize a web application:
+- Create Dockerfile for application
+- Use multi-stage build
+- Set up docker-compose with:
+  - Web server
+  - Application server
+  - Database
+  - Redis cache
+- Configure volumes for persistence
+- Set up networks properly
+- Add health checks
+- Configure for production
+
+---
