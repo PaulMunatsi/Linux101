@@ -5,7 +5,7 @@
 
 ## 📚 Course Overview
 
-This course is designed to take you from a complete Linux beginner to an expert system administrator capable of managing production servers, troubleshooting complex issues, and automating infrastructure. You'll use both your Ubuntu Desktop and Raspberry Pi Ubuntu Server throughout this journey.
+This course is designed to take you from a complete Linux beginner to an intermediate system administrator capable of managing production servers, troubleshooting complex issues, and automating infrastructure. You'll use both your Ubuntu Desktop and Ubuntu Server throughout this journey.
 
 **Prerequisites:**
 - Ubuntu Desktop installed on laptop ✓
