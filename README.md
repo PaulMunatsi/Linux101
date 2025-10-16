@@ -1,5 +1,5 @@
-# Linux Mastery: Zero to Expert
-### A Comprehensive Journey from Beginner to Linux Expert
+# Linux Mastery: Zero to Hero
+### A Comprehensive Linux Journey
 
 ---
 
